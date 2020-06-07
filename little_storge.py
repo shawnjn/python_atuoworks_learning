@@ -15,6 +15,17 @@ time_tep = datetime.datetime.fromtimestamp(time_mark)
 time_nm = time_tep.strftime('%Y-%m-%d-%H:%M')
 # print(time_nm )
 
+#表格字体等格式，时间等要求
+timenow = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M')
+font_01 = Font(name='楷体-简', size=12, bold=True, italic=0, color="000000") #字体设置：bold粗体，italic斜体，黑色
+font_02 = Font(name='楷体-简', size=12, bold=True, italic=0, color="FF0000") #字体设置：bold粗体，italic斜体，红色
+alignment_01 = Alignment(horizontal='center', vertical='center',
+                         text_rotation=0, wrap_text=True)   #对齐设置：text_rotation旋转角度,wrap_text=True自动换行
+side_01 = Side(style='thin', color='000000')   #style=边线样式，color=边线颜色
+border_01 = Border(left=side_01, right=side_01, top=side_01, bottom=side_01)    #设置边框样式：
+fill_01 = PatternFill(fill_type='solid', fgColor='FFFF00')    #设置填充样式:fill_type=填充样式， fgColor=填充颜色 黄色
+h_01 = 36   #行高设置
+
 #搜索选择指定的excel文件（通过比较最近修改确定最新文件）
 files_tep = []
 files_stmtime =[]
@@ -44,7 +55,33 @@ print(f'已激活"{wb_sheet_list[m-1]}"列表')
 
 #【库存数据】按照格式输出库存sheet表格；
 if m == 2:
-    1
+    wb_tep1 = xl.Workbook()
+    ws_tep1 = wb_tep1.active
+    ws_tep1.title = f'库存查询'
+    #复制数据至新表格，同时自定义表格格式
+    for i in range(1, ws_x.max_row+1):
+        for j in range(1, ws_x.max_column):
+            ws_tep1.cell(row=i, column=j).value = ws_x.cell(row=i, column=j).value  #复制数据至新表格；
+            ws_tep1.cell(row=i, column=j).border = border_01
+            if i < 3:
+                ws_tep1.cell(row=i, column=j).font = font_01
+                ws_tep1.cell(row=i, column=j).alignment = alignment_01
+                if j > 9 and j < 14:
+                    ws_tep1.cell(row=i, column=j).font = font_02
+    ws_tep1.cell(row=2, column=3).fill = fill_01
+    ws_tep1.cell(row=2, column=10).fill = fill_01
+    #定义行高
+    ws_tep1.row_dimensions[1].height = h_01
+    #自定义各列的宽度
+    widths = [8, 8, 9, 12, 9, 9, 9, 8, 9, 9, 9, 15, 15] #自定义各列的宽度（特殊）
+    column_tep = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
+    c_num = 0
+    for w_num in widths:
+        ws_tep1.column_dimensions[f'{column_tep[c_num]}'].width = w_num + 2
+        # ws.column_dimensions['B'].width = 20
+        c_num += 1
+    ws_tep1.merge_cells('A1:M1')
+    wb_tep1.save(f'库存查询结果-{timenow}.xlsx')
 
 #【入库操作】在sheet内进行循环多次操作；（入库数据完成，剩余将入库数据汇总至库存数据，部分输入错误或格式要求未细化，表格格式未美化）
 if m == 3:
