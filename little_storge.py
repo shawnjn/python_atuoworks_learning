@@ -81,7 +81,28 @@ if m == 2:
         # ws.column_dimensions['B'].width = 20
         c_num += 1
     ws_tep1.merge_cells('A1:M1')
+    #判断库存数量是否低于安全库存量，接近时预警（黄色框）、低于报警（红色框）；
+    for r in range(3, ws_tep1.max_row+1):
+      num = ws_tep1.cell(row=r, column=8).value #库存数量
+      num_war = ws_tep1.cell(row=r, column=10).value    #报警数量（定额）
+      num_alarm = ws_tep1.cell(row=r, column=11).value    #预警（提醒）
+      try:
+          num_1 = num - num_alarm
+          num_2 = num - num_war
+          if num_1 <= 0:
+              ws_tep1.cell(row=r, column=8).fill = fill_yel
+              print(f'{ws_tep1.cell(row=r, column=5).value}-'
+                    f'{ws_tep1.cell(row=r, column=6).value}------【预警】注意补充！')
+          if num_2 <= 0:
+              ws_tep1.cell(row=r, column=8).fill = fill_red
+              print(f'\033[32;0m {ws_tep1.cell(row=r, column=5).value}'
+                    f'-{ws_tep1.cell(row=r, column=6).value}'
+                    f'---【报警、报警、报警】库存不足，请立即补充！！')
+      except TypeError:
+          print('【存在 None 单元格】')
+          pass
     wb_tep1.save(f'库存查询结果-{timenow}.xlsx')
+    print(f'\n------库存查询结束！------\n请查看《库存查询结果-{timenow}.xlsx》\n')
 
 #【入库操作】在sheet内进行循环多次操作；（入库数据完成，剩余将入库数据汇总至库存数据，部分输入错误或格式要求未细化，表格格式未美化）
 if m == 3:
@@ -155,9 +176,22 @@ if m == 6:
     1
 
 #保存文件（文件开头增加修改完成时间，精确到分钟）
-time_now_ct = datetime.datetime.now()
-time_now = time_now_ct.strftime('%Y-%m-%d-%H:%M')
-file_n = f"库存管理(修改时间：{str(time_now)})"
-wb.save(f'{file_n}.xlsx')
-print(f'操作完成！\n已保存为"{file_n}.xlsx文件"')
+save_ch = 0
+while save_ch == 0:
+    save_done = input('是否需要对库存excel表格保存？'
+                      '\n---保存：请输入"y/Y"'
+                      '\n---不保存请输入"n/N"\n')
+    if save_done == 'y' or save_done == 'Y':
+        time_now_ct = datetime.datetime.now()
+        time_now = time_now_ct.strftime('%Y-%m-%d-%H:%M')
+        file_n = f"库存管理(修改时间：{str(time_now)})"
+        wb.save(f'{file_n}.xlsx')
+        print(f'操作完成！\n已保存为:{file_n}.xlsx文件 \n感谢使用！！！"')
+        save_ch = 1
+    elif save_done == 'n' or save_done == 'N':
+        print('此次操作，库存excel未保存，感谢使用！！！')
+        save_ch = 1
+    else:
+        print('输入错误，请重新输入！！！')
+        continue
 
