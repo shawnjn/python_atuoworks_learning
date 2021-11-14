@@ -1,0 +1,540 @@
+# data from sina
+# 监视指定股票并发送信息至钉钉
+# 仅做测试，可以模块化编写
+
+import requests, time, re, json
+import hmac
+import hashlib
+import base64
+import urllib.parse
+import urllib.request
+
+
+# 【0】时间转换，'%Y-%m-%d %H:%M:%S'格式转换为timetamp
+def Strtime_to_Timestamp(strftime):
+    # 转换成时间数组
+    timeArray = time.strptime(strftime, '%Y-%m-%d %H:%M:%S')
+    # 转换成时间戳
+    timestamp = time.mktime(timeArray)
+    return (timestamp)
+
+
+# 【1】钉钉自动发送信息的主程序
+class DingDingWebHook(object):
+    def __init__(self, secret=None, url=None):
+        """
+        :param secret: 安全设置的加签秘钥
+        :param url: 机器人没有加签的WebHook_url
+        """
+        if secret is not None:
+            secret = secret
+        else:
+            secret = 'SEC4cfab848e2ec3a467f47252eea178288e30d5075c41097a60562806d10d3d13c'  # 加签秘钥；默认机器人
+        if url is not None:
+            url = url
+        else:
+            url = "https://oapi.dingtalk.com/robot/send?access_token=3c55bb84ed529eceed23cba97d0243df3075d6b3ca1dccaa430b5860da23fb29"  # 无加密的url；默认机器人
+
+        timestamp = round(time.time() * 1000)  # 时间戳
+        secret_enc = secret.encode('utf-8')
+        string_to_sign = '{}\n{}'.format(timestamp, secret)
+        string_to_sign_enc = string_to_sign.encode('utf-8')
+        hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
+        sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))  # 最终签名
+
+        self.webhook_url = url + '&timestamp={}&sign={}'.format(timestamp, sign)  # 最终url，url+时间戳+签名
+
+    def send_meassage(self, data):
+        """
+        发送消息至机器人对应的群
+        :param data: 发送的内容
+        :return:
+        """
+        header = {
+            "Content-Type": "application/json",
+            "Charset": "UTF-8"
+        }
+        send_data = json.dumps(data)  # 将字典类型数据转化为json格式
+        send_data = send_data.encode("utf-8")  # 编码为UTF-8格式
+        request = urllib.request.Request(url=self.webhook_url, data=send_data, headers=header)  # 发送请求
+
+        opener = urllib.request.urlopen(request)  # 将请求发回的数据构建成为文件格式
+        # print(opener.read())  # 打印返回的结果
+
+
+# 【2】自动发送信息至钉钉（群发不@）
+def send_messge_dingding_AI(text):
+    my_secret = '*******' # 填写自己的
+    my_url = '*******' # 填写自己的
+    # 【text】格式；其他格式参考：https://blog.csdn.net/weixin_47154909/article/details/106335913
+    my_data = {
+        "msgtype": "text",
+        "text": {
+            "content": f"{text}"  # 正在测试钉钉AI程序~@188******
+        },
+        "at": {
+            "atMobiles": [
+                ''
+                # "188******" # 测试钉钉@的人
+            ],
+            "isAtAll": False
+        }
+    }
+
+    dingding = DingDingWebHook(secret=my_secret, url=my_url)
+    dingding.send_meassage(my_data)
+
+
+def send_messge_dingding_AI_at1(text):  # 该信息@指定成员
+    my_secret = '*******' # 填写自己的
+    my_url = '*******' # 填写自己的
+    # 【text】格式；其他格式参考：https://blog.csdn.net/weixin_47154909/article/details/106335913
+    my_data = {
+        "msgtype": "text",
+        "text": {
+            "content": f"{text}"  # 正在测试钉钉AI程序~
+        },
+        "at": {
+            "atMobiles": [
+                "188******" #@@人员电话
+            ],
+            "isAtAll": False
+        }
+    }
+
+    dingding = DingDingWebHook(secret=my_secret, url=my_url)
+    dingding.send_meassage(my_data)
+
+
+# 【3】online 对单一股票进行分析（在线获取数据，暂未进行存储处理;不含上证、深成指数）
+def Get_Code_Deal_Infosina(ts_code):
+    # 每次获取信息，保存到该字典内
+    Code_Infosina_dic = {}
+    # 字典格式为
+    # {
+    #   ts_code:ts_code,
+    #   name:name,
+    #   data:[……],
+    #   mark:[error1,error2]
+    # }
+    Code_Infosina_dic['ts_code'] = ts_code
+    # i-获取数据(分为2部分,静态信息和动态数据）
+    headers = {
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Connection': 'keep-alive',
+        'Host': 'hq.sinajs.cn',
+        'Referer': 'https://vip.stock.finance.sina.com.cn/',
+        'sec-ch-ua': '"Chromium";v="94", "Google Chrome";v="94", ";Not A Brand";v="99"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': 'Windows',
+        'Sec-Fetch-Dest': 'script',
+        'Sec-Fetch-Mode': 'no-cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36'
+    }
+    # （1）-获取静态数据(不含指数上证、深成），info_dic
+    url_st = f'https://finance.sina.com.cn/realstock/company/{ts_code}/jsvar.js'
+    pattern_st = re.compile(r'var (.*?);')
+    info_dic = {}
+    # info_dic各参数明细：
+    # lta//流通A股,老数据保留
+    # lastfive//过去5个交易日平均每分钟成交量
+    # flag//判断标志
+    # totalcapital//总股本(万）
+    # currcapital//流通股本(万）
+    # curracapital //流通A股(万）
+    # currbcapital//流通B股(万）
+    # a_code //流通A股代码
+    # b_code //流通B股代码
+    # papercode//当前页面个股代码
+    # exchangerate //汇率
+    # fourQ_mgsy //最近四个季度每股收益和
+    # lastyear_mgsy//前一年每股收益和
+    # price_5_ago//5日前收盘价格
+    # price_10_ago//10日前收盘价格
+    # price_20_ago//20日前收盘价格
+    # price_60_ago//60日前收盘价格
+    # price_120_ago//120日前收盘价格
+    # price_250_ago//250日前收盘价格
+    # mgjzc//最近报告的每股净资产
+    # stock_state//个股状态（0:无该记录; 1:上市正常交易; 2:未上市; 3:退市）
+    # trans_flag //是否显示涨跌停价（1:显示 0:不显示）
+    # profit//最近年度净利润
+    # profit_four//最近四个季度净利润
+    # stockType//股票类型  A-A股 B-B股  I-指数
+    # stockname//股票名称
+    # corr_hkstock//相关港股代码
+    # corr_bdc//相关债券可转换债
+    # corr_bde //相关债券普通企业债
+    # a_totalcapital = 93521.029200; //A股总股本(万）
+    # b_totalcapital = 0.000000; //B股总股本(万）
+    # h_totalcapital = 0.000000; //H股总股本(万）
+    # a_currency //A股币种
+    # b_currency //B股币种
+    # h_currency//H股币种
+    # regcpt_currency//注册资本币种
+    # stock_other_type//细分类型（X-普通股;K-科创板;C-CDR;KC-科创板+CDR）
+    response_st = requests.get(url=url_st, headers={'User-Agent': headers['User-Agent']})
+    time.sleep(1)
+    if response_st.status_code == 200:
+        error_code1 = 'success'
+        for t in re.findall(pattern_st, response_st.text):
+            info = t.split(' = ')
+            info_dic[info[0]] = info[1]  # 将数据保存入字典中，便于后续使用。程序中只使用了个别数据（流动股、最近5日平均交易）
+    else:
+        error_code1 = 'error01'
+        print('error01：sina_静态数据_error  ！')
+    # print(info_dic) #股票所有静态信息
+
+    # （2）-获取股票动态信息（当前交易价格、涨跌幅等信息）
+    rn = int(time.time())
+    url = f'https://hq.sinajs.cn/rn={rn}&list={ts_code}'
+    pattern = re.compile('="(.*?)"')  # 准备查询股票信息
+    response = requests.get(url=url, headers=headers)
+    if response.status_code == 200:
+        error_code2 = 'success'
+        code_deal_now = re.findall(pattern, response.text)[0]  # 只对单一股票进行查找；格式为str
+        ls = code_deal_now.split(',')  # 获取code_lists相关数据
+        # print(ls)   # 打印股票所有的动态信息
+        # ls（lists)对应顺序：
+        # 0:name,1:open,2:t-1close,3:nowprice,4:最高,5:最低,6:昨收,7:??,8:成交量（手）,9:成交额（元）,
+        # 10:买一（量，手*100）,11:买一price,12:,13:买二,14:,15:买三,16:,17:买四,18:,19:买五
+        # 20卖一（量，手*100）:,21:卖一price,22:,23:卖二,24:25:卖三,26:,27:卖四,28:,29:卖五,30:date,31:time,32:00
+        name = ls[0]
+        info_time = ls[31]
+        price = float(ls[3])  # 当前价格
+        t_1close = float(ls[2])  # 昨日收盘价格
+        max_price = float(ls[4])  # 当日最高价
+        min_price = float(ls[5])  # 当日最低价格
+        vol = int(ls[8])  # 当前成交量
+        amount = float(ls[9])  # 当前成交量(元）
+        # 涨跌幅%（当前价格-昨日收盘价格）/昨日收盘价格*100%
+        rd_perst_num = round((price - t_1close) / t_1close * 100, 2)  # 涨跌幅num，float
+        rd_perst = str(rd_perst_num) + '%'  # 涨跌幅%，str
+        # 均价（当日交易总额/交易手）
+        av_price = round(float(ls[9]) / float(ls[8]), 2)  # 当前均值（当日交易总额/交易手），float
+        # 换手率 换手率=某一段时期内的成交量/发行总股数×100%
+        tournover_rate_num = round(int(vol) / (float(info_dic['currcapital']) * 10000) * 100, 2)
+        tournover_rate_str = str(tournover_rate_num) + '%'
+        # 量比(quantity relative ratio) 量比=（现成交总手数 / 现累计开市时间(分) ）/ 过去5日平均每分钟成交量
+        ntime = Strtime_to_Timestamp(strftime=time.strftime('%Y-%m-%d %H:%M:%S'))
+        mor_starttime = Strtime_to_Timestamp(strftime=time.strftime('%Y-%m-%d 09:30:00'))
+        mor_endtime = Strtime_to_Timestamp(strftime=time.strftime('%Y-%m-%d 11:30:00'))
+        aft_starttime = Strtime_to_Timestamp(strftime=time.strftime('%Y-%m-%d 13:00:00'))
+        aft_endtime = Strtime_to_Timestamp(strftime=time.strftime('%Y-%m-%d 15:00:00'))
+        if mor_starttime <= ntime <= mor_endtime:  # 9:30-11:30之间
+            d_time = round(float((ntime - mor_starttime) / 60), 2)
+        elif aft_starttime <= ntime <= aft_endtime:  # 13:00-15:00之间
+            d_time = round(float((ntime - aft_starttime) / 60 + 120.00), 2)
+        else:  # 不在交易时间,按照交易完成时间算
+            d_time = 240.00
+        lastfive = float(info_dic['lastfive'])
+        q_r_ratio = round((int(vol) / d_time) / lastfive / 100, 4)
+    else:
+        error_code2 = 'error02'
+        print('error02：sina_动态交易数据_error ！')
+    Code_Infosina_dic['name'] = name
+    # price 成交价，float；
+    # rd_perst_num 涨跌幅%，float；
+    # av_price 均价（元）,float；
+    # max_price 成交最高价（元）,float；
+    # min_price 成交最低价（元）,float;
+    # vol 成交量（手）,int;
+    # amount 成交量（元）,int
+    # t_1close 昨日收盘价（元）,float；
+    # tournover_rate_num 换手率%,float
+    # q_r_ratio 量比,float
+    Code_Infosina_dic['data'] = [info_time, price, rd_perst_num, av_price, max_price, min_price, vol, amount, t_1close,
+                                 tournover_rate_num, q_r_ratio]
+    Code_Infosina_dic['mark'] = [error_code1, error_code2]
+    # print(Code_Infosina_dic)
+    # Code_Infosina_dic =
+    # {
+    #   ts_code:ts_code,
+    #   name:name,
+    #   data:[……],
+    #   mark:[error1,error2]
+    # }
+    return Code_Infosina_dic
+
+
+# 【4】onlone 获取指数信息(获取上证、深成指数信息）
+def Get_SC_index_InfoSina(code):
+    # 获取信息保存只该字典内
+    SC_Infosina_dic = {}
+    # 字典格式
+    # {
+    # ts_code:code,
+    # name:name,
+    # data:[],
+    # mark:[error]
+    # }
+    headers_SC = {
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Connection': 'keep-alive',
+        'Host': 'hq.sinajs.cn',
+        'Referer': f'http://finance.sina.com.cn/realstock/company/{code}/nc.shtml',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36'
+    }
+    url = f'http://hq.sinajs.cn/list={code}'
+    try:
+        response = requests.get(url=url, headers=headers_SC)
+        pattern = re.compile('="(.*?)";')
+        if response.status_code == 200:
+            msg = 'success'
+            info = re.findall(pattern=pattern, string=response.text)
+            # print(info)   # 测试用
+            SC_info_lists = info[0].split(',')
+            # 0-name-name str
+            # 1-今开-open
+            # 2-昨收-y_close
+            # 3-当前指数-now_point
+            # 4-最高-high
+            # 5-最低-low
+            # 6-0
+            # 7-0
+            # 8-成交量（手）-total_num
+            # 9-成交额（元）-amount
+            # 10~29-0
+            # 30-date
+            # 31-time
+            # 32-0
+            name = SC_info_lists[0]
+            open = float(SC_info_lists[1])
+            y_close = float(SC_info_lists[2])
+            now_point = float(SC_info_lists[3])
+            high = float(SC_info_lists[4])
+            low = float(SC_info_lists[5])
+            total_num = float(SC_info_lists[8])
+            amount = float(SC_info_lists[9])
+            date = SC_info_lists[30]
+            time = SC_info_lists[31]
+
+            SC_Infosina_dic['ts_code'] = code
+            SC_Infosina_dic['name'] = name
+            SC_Infosina_dic['data'] = [open, y_close, now_point, high, low, total_num, amount, date, time]
+            ## 指数显示
+            print(f'{name}: {round(now_point, 2)}（{round(now_point - y_close, 2)}）')
+        else:
+            msg = f'error03,response.status_code={response.status_code}'
+            print('error03：sina_上证、深成数据_error！')
+    except:
+        msg = 'error03,no info'
+        pass
+    SC_Infosina_dic['mark'] = [msg]
+    # 字典格式{ts_code:code,name:name,data:[],mark:[error]}
+    return SC_Infosina_dic
+
+
+# 【5】股票判断策略,code_lists 格式 ['sh601199','sz002302']
+def Judge_code(code_lists):
+    tim = time.strftime('%H:%M:%S')
+    # 单一股票数据与指数进行对比
+    for ts_code in code_lists:
+        # i 先获取指数信息,并报送对应的大盘信息
+        if 'sh' in ts_code.lower():
+            code = 'sh000001'
+            SC_dicts = Get_SC_index_InfoSina(code=code)
+        else:
+            code = 'sz399001'
+            SC_dicts = Get_SC_index_InfoSina(code=code)
+        SC_data = SC_dicts['data']
+        SC_name = SC_dicts['name']
+        SC_data10_dicts[code].append(SC_data)  # 每次获取的指数信息进行保存
+        if len(SC_data10_dicts[code]) >= 20:
+            SC_data10_dicts[code] = SC_data10_dicts[code][-20:]
+        else:
+            pass
+        # ******** 指数判断策略
+        SC_dic = {'sz399001': '深证指数', 'sh000001': '上证指数'}
+        open_point = SC_dicts['data'][0]
+        y_close_point = SC_dicts['data'][1]
+        now_point = round(SC_dicts['data'][2], 2)
+        h_point = SC_dicts['data'][3]
+        l_point = SC_dicts['data'][4]
+        # 大盘下跌30个点，报警次数进行限制（下跌60点后没报警限制）
+        if len(SC_data10_dicts[code]) > 2:
+            dd_point = round(now_point - y_close_point, 2)
+            if (now_point - y_close_point < -60 and SC_data10_dicts[code][-2][2] - SC_data10_dicts[code][-2][1] >= -60):
+                text = f'{tim} {SC_dic[code]}【↓】：指数下跌点突破-60点,{now_point}({dd_point}点)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            elif (now_point - y_close_point < -30 and SC_data10_dicts[code][-2][2] - SC_data10_dicts[code][-2][
+                1] >= -30):
+                text = f'{tim} {SC_dic[code]}【↓】：指数下跌点突破-30点,{now_point}({dd_point}点)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            elif (now_point - y_close_point > 30 and SC_data10_dicts[code][-2][2] - SC_data10_dicts[code][-2][1] < 30):
+                text = f'{tim} {SC_dic[code]}【↑】：指数上涨突破30点,{now_point}({dd_point}点)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            else:
+                pass
+        else:
+            pass
+        if len(SC_data10_dicts[code]) == 20:  # 10次数据
+            dd10_point = round(now_point - SC_data10_dicts[code][0][2], 2)
+            if dd10_point >= 10:
+                text = f'{tim} {SC_dic[code]}【↑】：10min快速上涨,{now_point}({dd10_point}点)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            elif dd10_point <= -10:
+                text = f'{tim} {SC_dic[code]}【↓】：10min快速下跌,{now_point}({dd10_point}点)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            else:
+                pass
+
+        dicts = Get_Code_Deal_Infosina(ts_code=ts_code)  # 单一股票数据（online）
+        data = dicts['data']  # 本次数据获取
+        name = dicts['name']
+        price = data[1]  # float
+        av_price = data[3]  # float
+        rd_perst_num = data[2]  # float
+        q_r_ratio = data[-1]  # float
+        amount = data[-4]  # float
+        Max_price = data[4]  # float
+        Min_price = data[5]  # float
+        print(f'{tim} {name}：{rd_perst_num}%，{price}，Av：{av_price}，Max：{Max_price}，Min：{Min_price}')
+        # ii 将数据临时保存,只保存最近10次
+        data10_dicts[ts_code].append(data)  # # 每次获取的股票信息进行保存
+        if len(data10_dicts[ts_code]) >= 20:
+            data10_dicts[ts_code] = data10_dicts[ts_code][-20:]
+        else:
+            pass
+
+        # ********** 第 3 次 后开始走该段程序
+        # 通用策略1:【均价策略】，反应缓慢；使用间隔1次扫描
+        # 1）【通用-上涨】策略：平均价格上涨
+        if len(data10_dicts[ts_code]) >= 3:
+            change2_rd_perst = round(rd_perst_num - data10_dicts[ts_code][-2][2], 2)
+            if av_price > data10_dicts[ts_code][-2][3]:
+                text = f'{tim}   {name}【↑】：均价上涨,{rd_perst_num}%({change2_rd_perst}%)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            # 2）【通用-下跌】策略：平均价格监视(均价降低）
+            elif av_price < data10_dicts[ts_code][-2][3]:
+                text = f'{tim}   {name}【↓】：均价下跌,{rd_perst_num}%({change2_rd_perst}%)'
+                send_messge_dingding_AI(text=text)
+                print(text)
+            else:
+                pass
+            # 通用策略2:【量比策略】，反应快速，能抓住期间大额交易；使用间隔2次扫描
+            # 3) 【通用-上涨】策略：量比监视，发现突然大量金额（交易）
+            dt_ratio = round(q_r_ratio - data10_dicts[ts_code][-3][-1], 4)  # 求量比差值
+            if dt_ratio > 0.007:
+                change3_rd_perst = round(rd_perst_num - data10_dicts[ts_code][-3][2], 2)
+                money = round((amount - data10_dicts[ts_code][-3][-4]) / 10000, 0)
+                if rd_perst_num > data10_dicts[ts_code][-3][2]:
+                    text = f'{tim}   {name}【↑】：{rd_perst_num}%({change3_rd_perst}%),量比：{round(q_r_ratio, 2)}，[买盘] {money}万元'
+                    send_messge_dingding_AI_at1(text=text)
+                    print(text)
+                elif rd_perst_num < data10_dicts[ts_code][-3][2]:
+                    text = f'{tim}   {name}【↓】：{rd_perst_num}%({change3_rd_perst}%),量比：{round(q_r_ratio, 2)}，[卖盘] {money}万元'
+                    send_messge_dingding_AI_at1(text=text)
+                    print(text)
+                else:
+                    text = f'{tim}   {name}【-】：{rd_perst_num}%({change3_rd_perst}%)，量比：{round(q_r_ratio, 2)}, [中性盘] {money}万元'
+                    send_messge_dingding_AI_at1(text=text)
+                    print(text)
+            else:
+                pass
+        else:
+            pass
+        # 2)通用策略3:【10min涨跌幅度】（期间跟踪大盘指数情况）
+        if len(data10_dicts[ts_code]) == 20:
+            min10_rd_perst_num = round(rd_perst_num - data10_dicts[ts_code][0][2], 2)
+            if min10_rd_perst_num >= 0.5:
+                text = f'{tim}   {name}【↑】：10min快速上涨,{rd_perst_num}%({min10_rd_perst_num}%)；{SC_dic[code]}：{now_point}（期间指数{dd10_point}）'
+                send_messge_dingding_AI_at1(text=text)
+                print(text)
+            elif min10_rd_perst_num < -0.5:
+                text = f'{tim}   {name}【↓】：10min快速下跌,{rd_perst_num}%（{min10_rd_perst_num}%）；{SC_dic[code]}：{now_point}（期间指数{dd10_point}）'
+                send_messge_dingding_AI_at1(text=text)
+                print(text)
+            else:
+                pass
+        else:
+            pass
+
+        # 3）【**专用**】策略：结合各股票进行编写
+        # 以下内容结合各股票进行编写
+        # 通过ts_code 来选择对应的股票；然后再进行判断；
+        if len(data10_dicts[ts_code]) >= 2:
+            # 中间无交易就不进行判断（休市期间）
+            if amount > data10_dicts[ts_code][-2][-4]:
+                if ts_code == 'sh601199':  # 江南水务
+                    # 1）【上涨】策略1：（上涨2%,或设定上涨价格）
+                    if rd_perst_num > 2 or price > 4.50:
+                        text = f'{tim}   {name}【↑】：当前{rd_perst_num}%，{price}，Av：{av_price}'
+                        send_messge_dingding_AI_at1(text=text)
+                        print(text)
+                    # 2) 【通用-下跌】策略1：（下跌-1%，价格低于4.33）
+                    elif rd_perst_num < -1 or price < 4.33:
+                        text = f'{tim}   {name}【↓】：当前{rd_perst_num}%，{price}，Av：{av_price}'
+                        send_messge_dingding_AI_at1(text=text)
+                        print(text)
+                    else:
+                        pass
+
+                elif ts_code == 'sh601555':  # 东吴证券
+                    # 1）【上涨】策略1：（上涨2%,或设定上涨价格）
+                    if rd_perst_num > 3 or price > 8.9:
+                        text = f'{tim}   {name}【↑】：当前{rd_perst_num}%，{price}，Av：{av_price}'
+                        send_messge_dingding_AI_at1(text=text)
+                        print(text)
+                    # 2) 【通用-下跌】策略1：（下跌-1%，价格低于4.33）
+                    elif rd_perst_num < -1 or price < 8.55:
+                        text = f'{tim}   {name}【↓】：当前{rd_perst_num}%，{price}，Av：{av_price}'
+                        send_messge_dingding_AI_at1(text=text)
+                        print(text)
+                    else:
+                        pass
+                else:
+                    pass
+            else:
+                pass
+        else:
+            pass  # 第2次数据后开始判断
+        # print(15 * '………')
+        time.sleep(1)  # 两次之间间隔
+    # print(data10_dicts)
+
+
+def main(code_lists):
+    # 对程序运行情况进行监视，出错发送信息(联系发送3次）
+    start_flag = True
+    try:
+        while start_flag == True:
+            program_start_time = time.strftime('%Y-%m-%d %H:%M:%S')
+            print(program_start_time)
+            # Get_SC_index_InfoSina(code_lists=SC_code_lists) # 对上证、深成指数监视
+            Judge_code(code_lists=code_lists)  # 股票监视策略
+            print(15 * '====')
+            time.sleep(sweep_time)  # 程序间隔时间******【关键参数】
+    except:
+        # 程序出错，连续发送信息提醒(3次，间隔1s）
+        for i in range(3):
+            text = time.strftime("%H:%M:%S") + '程序 Error，已退出！！'
+            send_messge_dingding_AI(text=text)
+            time.sleep(1)
+            start_flag = False
+
+
+if __name__ == '__main__':
+    code_lists = ['sh601199', 'sz002302']  # 输入需要监视的股票（建议不超3只）
+    sweep_time = 25  # 扫描时间设置25s(程序运行约3s/code）
+
+    data10_dicts = {}  # code股票数据临时保存(最近10min数据）
+    for ts_code in code_lists:
+        data10_dicts[ts_code] = []
+    SC_code_lists = ['sh000001', 'sz399001']
+    SC_data10_dicts = {}  # 上证、深成指数数据临时保存（最近10min数据）
+    for code in SC_code_lists:
+        SC_data10_dicts[code] = []
+    # 主程序运行
+    main(code_lists=code_lists)
